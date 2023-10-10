@@ -5,87 +5,6 @@ date: "9/11/2022, updated 26/9/2023"
 output: html_document
 ---
 
-```{r helper_funcs, include=FALSE}
-# For the touchtracking data, we can save a bunch of
-# hassle by scaling the x/y coordinates within
-# subjects. One caveat, mousetrap data comes with x and y coordinates
-# in a column, but they are a chr with all the coordinates in one string
-# that's the reason this looks so complicated, basically we're just:
-# 1. splitting the string into a list
-# 2. scaling the list
-# 3. putting the list back together as a string
-
-scale_raw_mousetrap_data <- function(df) {
-  # Split data
-  scale_raw_data <- function(x) {
-    # helper function https://github.com/PascalKieslich/mousetrap/blob/master/R/import.R#L226C3-L243C66
-    split <- ","
-    # Remove all irrelevant characters
-    x <- gsub(pattern=paste0("[^-e0123456789.",split,"]"),replacement = "", x)
-
-    # Remove leading / end / double split characters
-    x <- gsub(pattern=paste0("^",split),replacement = "", x)
-    x <- gsub(pattern=paste0(split,"$"),replacement = "", x)
-    x <- gsub(pattern=paste0(split,split),replacement = "", x)
-
-    # Split according to specified character
-    x <- strsplit(x, split=split)
-
-    return(as.numeric(unlist(x)))
-  }
-  # get subject row indices by unique "subject_id" and "experiment_start_time" (in case two have the same id)
-  idxs <- df %>%
-    mutate(
-      idx = row_number()
-    ) %>%
-    select(
-      idx,
-      subject_id
-    )
-
-  # now loop and scale/standardize each subject's data
-  for (i in unique(idxs$subject_id)) {
-    # get the indices for this subject
-    idxs_sub <- idxs %>%
-      filter(
-        subject_id == i
-      ) %>%
-      pull(
-        idx
-      )
-
-    # get the data for this subject
-    subj_pos_data <- apply(
-      df[idxs_sub, c(
-          'xpos_tracking',
-          'ypos_tracking'
-        )
-      ],
-      c(1, 2),
-      scale_raw_data
-    )
-
-    # get the lengths of the lists
-    xpos_lengths <- sapply(subj_pos_data[, 'xpos_tracking'], length)
-    ypos_lengths <- sapply(subj_pos_data[, 'ypos_tracking'], length)
-
-    # flatten and scale the lists
-    flattened_xpos <- scale(unlist(subj_pos_data[, 'xpos_tracking']))
-    flattened_ypos <- scale(unlist(subj_pos_data[, 'ypos_tracking']))
-
-    # put the data back together
-    for (j in 1:length(idxs_sub)) {
-      df[idxs_sub[j], 'xpos_tracking'] <- paste(flattened_xpos[1:xpos_lengths[j]], collapse = ',')
-      df[idxs_sub[j], 'ypos_tracking'] <- paste(flattened_ypos[1:ypos_lengths[j]], collapse = ',')
-
-      flattened_xpos <- flattened_xpos[(xpos_lengths[j] + 1):length(flattened_xpos)]
-      flattened_ypos <- flattened_ypos[(ypos_lengths[j] + 1):length(flattened_ypos)]
-    }
-  }
-  return(df)
-}
-
-```
 
 
 For the analysis of your very own mouse-tracking data, we will be using a package called MouseTrap. In order to get acquainted with the package, we will play around with data from a single participant conduction the circle-square experiment. 
@@ -104,23 +23,16 @@ Call me for help whenever you get stuck (or take a quick look in the solutions f
 
 ```{r setup, include=FALSE}
 # loading packages
-pacman::p_load(mousetrap, tidyverse, readbulk)
+pacman::p_load(mousetrap, tidyverse, readbulk, png, grid)
 
 ```
 
-Single file:
-
-```{r read_data_single}
-# loading in data
-d <- read_csv("log_files/subject-0.csv")
-
-```
 
 Touchtracker data:
 
 ```{r read_data_tt}
 #read in data
-d_tt <- read_bulk('log_files/', 
+d_tt <- read_bulk('../log_files/', 
           extension = 'csv')
 
 ### forgot to track actual button click so the following code extracts the last x-position of the mouse, and infers the what button was clicked
@@ -162,31 +74,10 @@ d_tt <- d_tt %>%
   filter(number_of_coords > 10)
 
 
-
-```
-
-
-```{r mousetrap_tt}
 m_tt <- mt_import_mousetrap(
   d_tt,
      verbose = TRUE
 )
-```
-
-
-```{r plotting_tt}
-# i
-# note, different screen sizes will mean the data looks like it starts in different places
-mt_plot(m_tt, color = "judgement")
-
-```
-
-
-### Mirror-symmetric mapping of movements
-
-Touchtracker data:
-
-```{r mirror_mapping_tt}
 
 # now we can remap the trajectories
 m_tt <- mt_remap_symmetric(
@@ -194,22 +85,6 @@ m_tt <- mt_remap_symmetric(
   use = 'trajectories',
   remap_xpos = "right",
   remap_ypos = "up"
-)
-
-# plot again
-mt_plot(
-  m_tt, 
-  use = 'trajectories',
-  color = "judgement",
-  wrap_var = "judgement")
-
-```
-
-```{r aggregated_plot_tt}
-mt_plot_aggregate(
-  m_tt, 
-  color = "judgement",
-  wrap_var = 'judgement'
 )
 
 m_tt_tn <- mt_time_normalize(
@@ -221,9 +96,122 @@ m_tt_tn <- mt_time_normalize(
 mt_plot_aggregate(
   m_tt_tn, 
   color = "judgement",
-  wrap_var = 'judgement'
-)
+  use = 'tn_trajectories'
+) +
+  ggplot2::scale_color_brewer(type="qual", palette = "Set2") +
+  
+  theme_classic() +
+  
+  labs(title = "Average Mouse Trajectory According to Moral Judgement", caption = "Note that coordinates are remapped for different placement of answer buttons, time normalized and aggregated.") +
+  
+  #xaxis
+  xlab("x-position of cursor") +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  
+  #yaxis
+  ylab("y-position of cursor") +
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
+  
+  #legend
+  labs(color = "Moral judgement") +
+  theme(legend.position = c(.95, .05), legend.justification = c("right", "bottom"), legend.box.just = "right", legend.margin = margin(6, 6, 6, 6))
 
-
+ggsave("average_mouse_trajectory.png")
 
 ```
+
+
+
+
+### Mirror-symmetric mapping of movements
+
+Touchtracker data:
+
+```{r plot of answer screen with trajectories overlayed }
+
+
+mt_plot(
+  m_tt, 
+  color = "judgement",
+  use = 'trajectories'
+) +
+  ggplot2::scale_color_brewer(type="qual", palette = "Set2") +
+  
+  theme_classic() +
+  
+  labs(title = "Raw Mouse Trajectories for Every Trial", caption = "Note that coordinates are remapped to account for the answer buttons randomly switching positions") +
+  
+  #xaxis
+  xlab("x-position of cursor") +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  
+  #yaxis
+  ylab("y-position of cursor") +
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
+  
+  #legend
+  labs(color = "Moral judgement") +
+  theme(legend.position = c(.95, .05), legend.justification = c("right", "bottom"), legend.box.just = "right", legend.margin = margin(6, 6, 6, 6))
+
+ggsave("raw_mouse_trajectories_for_every_trial.png")
+  
+  
+
+```
+
+
+```{r}
+# an example of aligning the data
+m_align <- mt_align(
+  m_tt_tn,
+  use = 'trajectories',
+  dimensions = c("xpos", "ypos"),
+  coordinates = c(0,0,-350,250),
+  align_start = T,
+  align_end = T
+)
+
+mt_plot(
+  m_align, 
+  use = 'trajectories',
+  color = "judgement",
+  wrap_var = "judgement")
+
+```
+
+```{r}
+m_tt_tn <- mt_measures(m_tt_tn, use = 'tn_trajectories')
+
+mt_measures_ag <- mt_aggregate(
+  m_tt_tn,
+  use_variables = c('MAD', 'xpos_flips','AUC', 'RT'), # if you want all of the measures, exclude this line
+  use2_variables = 'judgement'
+  )
+
+d_tt$auc <- m_tt_tn$measures$AUC
+
+#density of AUCs
+ggplot(d_tt, aes(x=auc, fill = judgement)) +
+  labs(fill = "Moral Judgement") +
+  geom_density(alpha = 0.75) +
+  ggplot2::scale_fill_brewer(type="qual", palette = "Set2") +
+  theme_classic() +
+  
+  labs(title = "Distributions of AUC for Different Moral Judgements") +
+  
+  #xaxis
+  ylab("Density") +
+  
+  #yaxis
+  xlab("Area Under the Curve") +
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
+  
+  #legend
+  theme(legend.position = c(.95, .15), legend.justification = c("right", "bottom"), legend.box.just = "right", legend.margin = margin(12, 12, 12, 12)) 
+
+
+ggsave("auc_distributions.png")
+
+```
+
+
